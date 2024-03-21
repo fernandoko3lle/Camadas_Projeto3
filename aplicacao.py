@@ -13,6 +13,16 @@
 from enlace import *
 import time
 import numpy as np
+import logging
+from datetime import datetime
+
+# Configurar o logger
+logging.basicConfig(filename='uart_log.txt', level=logging.INFO)
+
+# Função para escrever no log
+def log_message(msg):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logging.info(f"[{timestamp}] {msg}")
 
 # voce deverá descomentar e configurar a porta com através da qual ira fazer comunicaçao
 #   para saber a sua porta, execute no terminal :
@@ -22,7 +32,7 @@ import numpy as np
 #use uma das 3 opcoes para atribuir à variável a porta usada
 #serialName = "/dev/ttyACM0"           # Ubuntu (variacao de)
 #serialName = "/dev/tty.usbmodem1411" # Mac    (variacao de)
-serialName = "COM7"                  # Windows(variacao de)
+serialName = "COM10"                  # Windows(variacao de)
 
 
 def main():
@@ -65,10 +75,12 @@ def main():
 
         # Definindo Head como fazio
         head = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
+        head_recebido = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
         eop = b'\xAA\xBB\xCC\xDD'
         payload = bytearray()
         num_servidor = b'\xee'
         total_pacotes = 0
+        peguei = False
 
         # Recebendo primeiro comando
         txBuffer, nRx = com1.getData(10) 
@@ -99,12 +111,15 @@ def main():
 
                 else:
                     print('!--------------!')
-                    print('eop não coincide')   
+                    print('eop não coincide') 
+                    log_message("eop não coincide")  
                     print(f'eop recebido: {eop_recebido}; eop: {eop}')
                     print('!--------------!')
             else:
+                log_message("Mensagem enviada para o servidor errado")
                 print("Mensagem enviada para o servidor errado")
         else:
+            log_message("Erro ao receber a mensagem")
             print("Erro ao receber a mensagem")
         
         start_time_geral = time.time()
@@ -121,11 +136,13 @@ def main():
                 if enlapsed_time > 2:
                     head = list(head)
                     head[0] = 4
+                    # head[1] = i+1
                     head = bytearray(head)
                     payload = bytearray()
                     diagrama = head + payload + eop
                     com1.sendData(diagrama)
-                    print('Contato perdido, enviando requisição...')
+                    log_message("Contato perdido")
+                    print(f'Contato perdido, enviando requisição, {head}...')
                     time.sleep(1)
             if enlapsed_time >= 10:
                 print(head)
@@ -133,11 +150,21 @@ def main():
                 payload = bytearray()
                 diagrama = head + payload + eop
                 com1.sendData(diagrama)
+                log_message("Tempo de resposta expirado")
                 print('Tempo de resposta expirado')
                 finaliza_comunicacao()
                 break
-
-            while com1.rx.buffer[1] != (i+1):
+            
+            # print(f'head antes do while: {head_recebido}')
+            while head_recebido[1] != (i+1):
+                head_recebido,_ = com1.getData(10)
+                # print(f'pegou novo head: {head_recebido}')
+                tamanho_pacote = head_recebido[2]
+                # print(f'head_lido_no_while: {head_recebido}')
+                if head_recebido[1] == (i+1):
+                    break
+                lixo_payload, _= com1.getData(tamanho_pacote)
+                lixo, _ = com1.getData(4)
                 head = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
                 payload = bytearray()
                 head = list(head)
@@ -146,16 +173,20 @@ def main():
                 head = bytearray(head)
                 diagrama = head + payload + eop
                 com1.sendData(diagrama)
-                time.sleep(.1)
-                print(f'rxbuffer_1: {int_to_byte(com1.rx.buffer[1])}')
-                print(f'rxbuffer: {com1.rx.buffer}')
-                print(f'diagrama:{diagrama}')
-                print('Numero do pacote não corresponde')
-                print(f'i: {i}')
-            if (i+1) == com1.rx.buffer[1]: 
-                head,_ = com1.getData(10)
-                tamanho_pacote = head[2]
-                if head[0] == 3:
+                time.sleep(1)
+                # print(f'rxbuffer_1: {int_to_byte(com1.rx.buffer[1])}')
+                # print(f'rxbuffer: {com1.rx.buffer}')
+                # print(f'diagrama:{diagrama}')
+                log_message("Numero do pacote não corresponde")
+                print('Numero do pacote não corresponde\n')
+                # print(f'i: {i}')
+
+
+            # head,_ = com1.getData(10)
+            
+            tamanho_pacote = head_recebido[2]
+            if (i+1) == head_recebido[1]: 
+                if head_recebido[0] == 3:
                     payload,_ = com1.getData(tamanho_pacote) 
                     array_img += payload
                     eop_recebido,_ = com1.getData(4)
@@ -169,6 +200,7 @@ def main():
                         diagrama = head + payload + eop
                         com1.sendData(diagrama)
                         print(f'Pacote {i+1} lido')
+                        # print(f'head enviado: {head}')
                         time.sleep(.1)
                     else:
                         head = b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
@@ -179,13 +211,15 @@ def main():
                         head = bytearray(head)
                         diagrama = head + payload + eop
                         com1.sendData(diagrama)
+                        log_message("Dado corrompido")
                         print("Dado corrompido")
             else:
                 print('.')
         curent_time = time.time()
         enlapsed_time = curent_time - start_time_geral
-        print(enlapsed_time)
-        print(f'array da img: {array_img}')
+        print(f'Tempo total de duração: {enlapsed_time}')
+        print(f'Razão: {len(array_img)/enlapsed_time}')
+        # print(f'array da img: {array_img}')
         f = open(imageW, 'wb')
         f.write(array_img)
         f.close
